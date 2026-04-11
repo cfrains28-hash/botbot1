@@ -49,24 +49,35 @@ def send_telegram_msg(message):
 # 3. 데이터 불러오기 함수
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    # 바이낸스가 차단하기 힘든 여러 우회 주소들을 준비합니다.
-    base_urls = ["https://api1.binance.com", "https://api2.binance.com", "https://api3.binance.com"]
-    data = None
+    # 🚨 [우회 전략 1] 크롬 브라우저인 것처럼 위장하는 헤더 추가
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     
-    # 3개의 서버 중 하나라도 뚫릴 때까지 시도합니다.
+    # 🚨 [우회 전략 2] 현물 API가 막히면 선물(fapi) API 주소로 찌릅니다.
+    base_urls = [
+        "https://fapi.binance.com",  # 선물 API (가장 잘 뚫림)
+        "https://api.binance.com",   # 기본 API
+        "https://api1.binance.com",
+        "https://api3.binance.com"
+    ]
+    
+    data = None
     for base_url in base_urls:
         try:
-            url = f"{base_url}/api/v3/klines"
+            # 선물 API와 현물 API의 주소 형식이 약간 다를 수 있어 처리
+            endpoint = "/fapi/v1/klines" if "fapi" in base_url else "/api/v3/klines"
+            url = f"{base_url}{endpoint}"
             params = {"symbol": symbol, "interval": interval, "limit": 500}
-            response = requests.get(url, params=params, timeout=5)
+            
+            response = requests.get(url, params=params, headers=headers, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                break # 성공하면 탈출!
+                break
         except:
             continue
             
-    # 만약 모든 서버가 막혔다면 빈 데이터프레임 반환
-    if data is None or not isinstance(data, list):
+    if data is None or not isinstance(data, list) or len(data) == 0:
         return pd.DataFrame()
 
     df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
@@ -74,10 +85,9 @@ def load_data(interval, symbol):
     for col in ['open', 'high', 'low', 'close', 'volume']:
         df[col] = pd.to_numeric(df[col])
         
-    # 데이터가 부족하면 계산 생략 (에러 방지)
     if len(df) < 60: return df
 
-    # RSI 및 이평선 계산 (기존 로직 동일)
+    # RSI 및 이평선 계산 (동일)
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
