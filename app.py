@@ -49,28 +49,43 @@ def send_telegram_msg(message):
 # 3. 데이터 불러오기 함수
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    # 🚨 바이낸스 차단을 피하기 위해 'tld="me"' 옵션을 추가합니다!
-    client = Client(tld="me")
-    if interval == Client.KLINE_INTERVAL_15MINUTE: start_str = "3 days ago UTC"  
-    elif interval in [Client.KLINE_INTERVAL_1HOUR, Client.KLINE_INTERVAL_4HOUR]: start_str = "30 days ago UTC" 
-    elif interval == Client.KLINE_INTERVAL_1WEEK: start_str = "2 years ago UTC" 
-    elif interval == Client.KLINE_INTERVAL_1MONTH: start_str = "5 years ago UTC" 
-    else: start_str = "300 days ago UTC" 
-        
-    klines = client.get_historical_klines(symbol, interval, start_str)
-    df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
+    # 🚨 라이브러리 대신 바이낸스 API에 직접 요청 (우회 주소 api1~api3 사용)
+    url = f"https://api1.binance.com/api/v3/klines"
+    
+    # 간격별 기간 설정
+    if interval == Client.KLINE_INTERVAL_15MINUTE: limit = 288 # 3일치 근사치
+    elif interval in [Client.KLINE_INTERVAL_1HOUR, Client.KLINE_INTERVAL_4HOUR]: limit = 500
+    else: limit = 500
+    
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit
+    }
+    
+    # 데이터 가져오기
+    response = requests.get(url, params=params)
+    data = response.json()
+    
+    # 데이터프레임 변환
+    df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
+    
+    # 시간 및 숫자 형변환
     df['time'] = pd.to_datetime(df['time'], unit='ms')
     for col in ['open', 'high', 'low', 'close', 'volume']:
         df[col] = pd.to_numeric(df[col])
         
+    # RSI (14) 계산
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     df['rsi'] = 100 - (100 / (1 + (gain / loss))) 
     
+    # 이동평균선 계산
     df['ma5'] = df['close'].rolling(window=5).mean()
     df['ma20'] = df['close'].rolling(window=20).mean()
     df['ma60'] = df['close'].rolling(window=60).mean()
+    
     return df
 
 # 4. 데이터 로딩 및 사이드바 브리핑
