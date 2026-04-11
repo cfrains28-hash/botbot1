@@ -134,10 +134,23 @@ df['price_zone'] = pd.cut(df['close'], bins=bins)
 vp = df.groupby('price_zone', observed=False)['volume'].sum().reset_index()
 vp['price_mid'] = vp['price_zone'].apply(lambda x: x.mid).astype(float)
 
-poc_idx = vp['volume'].idxmax()
-poc_price = vp.loc[poc_idx, 'price_mid']
-poc_bottom = float(vp.loc[poc_idx, 'price_zone'].left)
-stop_loss_price = poc_bottom * 0.998 
+# ==========================================
+# 🛠️ [신규 코드] 스마트 지지선 추적 로직 적용
+# ==========================================
+# 1. 현재 가격보다 '낮은' 매물대만 필터링합니다.
+support_zones = vp[vp['price_mid'] < current_price]
+
+if not support_zones.empty:
+    # 2. 발밑에 있는 매물대 중에서 가장 튼튼한 바닥(최대 거래량)을 찾습니다.
+    poc_idx = support_zones['volume'].idxmax()
+    poc_price = support_zones.loc[poc_idx, 'price_mid']
+    poc_bottom = float(support_zones.loc[poc_idx, 'price_zone'].left)
+    stop_loss_price = poc_bottom * 0.998  # 그 바닥이 깨지면 손절 (-0.2% 버퍼)
+else:
+    # 3. [안전장치] 만약 밑에 매물대가 아예 없는 '완전 지하실(신저가)'이라면?
+    # 현재가 기준 -3%를 기계적 방어선으로 설정합니다.
+    poc_price = current_price
+    stop_loss_price = current_price * 0.97
 
 ma_score = 40 if (current_price > df['ma60'].iloc[-1] and df['ma5'].iloc[-1] > df['ma20'].iloc[-1] > df['ma60'].iloc[-1]) else (20 if current_price > df['ma60'].iloc[-1] else 0)
 vol_score = 30 if vol_ratio >= 3.0 else (15 if vol_ratio >= 1.5 else 0)
