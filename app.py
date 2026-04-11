@@ -7,15 +7,24 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 1. 웹 페이지 기본 설정 및 보안 스타일
-st.set_page_config(layout="wide")
-
+st.set_page_config(
+    layout="wide", 
+    initial_sidebar_state="collapsed" # 🚨 모바일 접속 시 사이드바를 자동으로 접어서 공간 확보!
+)
 # 사이드바 너비 축소 CSS
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"] {
-        min-width: 250px !important;
-        max-width: 250px !important;
+    /* 전체 배경 여백 제거 */
+    .block-container { padding: 1rem 1rem 1rem 1rem !important; }
+    
+    /* 사이드바 너비 고정 */
+    [data-testid="stSidebar"] { min-width: 250px !important; max-width: 250px !important; }
+
+    /* 모바일에서 차트 높이 강제 조절 (화면 크기에 따라) */
+    @media (max-width: 600px) {
+        .stPlotlyChart { height: 500px !important; }
+        .main-title { font-size: 1.5rem !important; }
     }
     </style>
     """,
@@ -193,12 +202,22 @@ fig.update_yaxes(side="right", tickformat=',.4f', row=1, col=2)
 fig.update_yaxes(range=[0, 100], side="right", tickvals=[30, 50, 70], row=2, col=2)
 
 fig.update_layout(
-    height=1000, template="plotly_dark", dragmode="pan", uirevision="constant",
-    margin=dict(l=10, r=60, t=80, b=50),
+    height=1000, # 기본(PC) 높이
+    template="plotly_dark", 
+    dragmode="pan", 
+    uirevision="constant",
+    margin=dict(l=0, r=40, t=50, b=0), # 🚨 여백을 극한으로 줄여서 꽉 차게!
     newshape=dict(line_color="cyan", line_width=2, line_dash="dot"),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+        font=dict(size=10) # 🚨 레전드 폰트 살짝 축소
+    ),
+    # 모바일에서 글자가 잘 보이도록 전역 폰트 설정
+    font=dict(size=12) 
 )
-
+# 축 설정 보강
+fig.update_yaxes(side="right", tickfont=dict(size=12), row=1, col=2) # 가격 폰트 키움
+fig.update_yaxes(tickfont=dict(size=10), row=2, col=2) # RSI 폰트 조절
 st.plotly_chart(fig, use_container_width=True, config={'modeBarButtonsToAdd': ['drawline', 'eraseshape'], 'scrollZoom': True})
 
 # 9. 자동 새로고침
