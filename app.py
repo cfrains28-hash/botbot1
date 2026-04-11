@@ -49,7 +49,8 @@ def send_telegram_msg(message):
 # 3. 데이터 불러오기 함수
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    client = Client()
+    # 🚨 바이낸스 차단을 피하기 위해 'tld="me"' 옵션을 추가합니다!
+    client = Client(tld="me")
     if interval == Client.KLINE_INTERVAL_15MINUTE: start_str = "3 days ago UTC"  
     elif interval in [Client.KLINE_INTERVAL_1HOUR, Client.KLINE_INTERVAL_4HOUR]: start_str = "30 days ago UTC" 
     elif interval == Client.KLINE_INTERVAL_1WEEK: start_str = "2 years ago UTC" 
