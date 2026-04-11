@@ -49,27 +49,23 @@ def send_telegram_msg(message):
 # 3. 데이터 불러오기 함수
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    # 🚨 [우회 전략 1] 크롬 브라우저인 것처럼 위장하는 헤더 추가
+    # 🚨 바이낸스가 눈치 못 채게 '사람'인 척하는 변장 도구(Header) 추가!
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
-    # 🚨 [우회 전략 2] 현물 API가 막히면 선물(fapi) API 주소로 찌릅니다.
-    base_urls = [
-        "https://fapi.binance.com",  # 선물 API (가장 잘 뚫림)
-        "https://api.binance.com",   # 기본 API
-        "https://api1.binance.com",
-        "https://api3.binance.com"
+    # 🚨 바이낸스가 덜 감시하는 '비밀 데이터 전용 주소'들
+    endpoints = [
+        "https://data-api.binance.vision/api/v3/klines",
+        "https://api.binance.com/api/v3/klines",
+        "https://api1.binance.com/api/v3/klines"
     ]
     
     data = None
-    for base_url in base_urls:
+    for url in endpoints:
         try:
-            # 선물 API와 현물 API의 주소 형식이 약간 다를 수 있어 처리
-            endpoint = "/fapi/v1/klines" if "fapi" in base_url else "/api/v3/klines"
-            url = f"{base_url}{endpoint}"
             params = {"symbol": symbol, "interval": interval, "limit": 500}
-            
+            # headers=headers를 넣어서 변장을 시킵니다!
             response = requests.get(url, params=params, headers=headers, timeout=5)
             if response.status_code == 200:
                 data = response.json()
@@ -77,7 +73,7 @@ def load_data(interval, symbol):
         except:
             continue
             
-    if data is None or not isinstance(data, list) or len(data) == 0:
+    if data is None or not isinstance(data, list):
         return pd.DataFrame()
 
     df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
@@ -87,12 +83,14 @@ def load_data(interval, symbol):
         
     if len(df) < 60: return df
 
-    # RSI 및 이평선 계산 (동일)
+    # RSI 및 이평선 계산 로직 (기존과 동일)
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     df['rsi'] = 100 - (100 / (1 + (gain / loss))) 
-    df['ma5'] = df['close'].rolling(window=5).mean(); df['ma20'] = df['close'].rolling(window=20).mean(); df['ma60'] = df['close'].rolling(window=60).mean()
+    df['ma5'] = df['close'].rolling(window=5).mean()
+    df['ma20'] = df['close'].rolling(window=20).mean()
+    df['ma60'] = df['close'].rolling(window=60).mean()
     
     return df
 
