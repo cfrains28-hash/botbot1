@@ -49,42 +49,40 @@ def send_telegram_msg(message):
 # 3. 데이터 불러오기 함수
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    # 🚨 라이브러리 대신 바이낸스 API에 직접 요청 (우회 주소 api1~api3 사용)
-    url = f"https://api1.binance.com/api/v3/klines"
+    # 바이낸스가 차단하기 힘든 여러 우회 주소들을 준비합니다.
+    base_urls = ["https://api1.binance.com", "https://api2.binance.com", "https://api3.binance.com"]
+    data = None
     
-    # 간격별 기간 설정
-    if interval == Client.KLINE_INTERVAL_15MINUTE: limit = 288 # 3일치 근사치
-    elif interval in [Client.KLINE_INTERVAL_1HOUR, Client.KLINE_INTERVAL_4HOUR]: limit = 500
-    else: limit = 500
-    
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit
-    }
-    
-    # 데이터 가져오기
-    response = requests.get(url, params=params)
-    data = response.json()
-    
-    # 데이터프레임 변환
+    # 3개의 서버 중 하나라도 뚫릴 때까지 시도합니다.
+    for base_url in base_urls:
+        try:
+            url = f"{base_url}/api/v3/klines"
+            params = {"symbol": symbol, "interval": interval, "limit": 500}
+            response = requests.get(url, params=params, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                break # 성공하면 탈출!
+        except:
+            continue
+            
+    # 만약 모든 서버가 막혔다면 빈 데이터프레임 반환
+    if data is None or not isinstance(data, list):
+        return pd.DataFrame()
+
     df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
-    
-    # 시간 및 숫자 형변환
     df['time'] = pd.to_datetime(df['time'], unit='ms')
     for col in ['open', 'high', 'low', 'close', 'volume']:
         df[col] = pd.to_numeric(df[col])
         
-    # RSI (14) 계산
+    # 데이터가 부족하면 계산 생략 (에러 방지)
+    if len(df) < 60: return df
+
+    # RSI 및 이평선 계산 (기존 로직 동일)
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     df['rsi'] = 100 - (100 / (1 + (gain / loss))) 
-    
-    # 이동평균선 계산
-    df['ma5'] = df['close'].rolling(window=5).mean()
-    df['ma20'] = df['close'].rolling(window=20).mean()
-    df['ma60'] = df['close'].rolling(window=60).mean()
+    df['ma5'] = df['close'].rolling(window=5).mean(); df['ma20'] = df['close'].rolling(window=20).mean(); df['ma60'] = df['close'].rolling(window=60).mean()
     
     return df
 
@@ -109,6 +107,11 @@ selected_interval = interval_dict[selected_interval_name]
 
 # 데이터 계산
 df = load_data(selected_interval, symbol)
+if df.empty:
+    st.error("⚠️ 바이낸스 서버 연결이 원활하지 않습니다. 잠시 후 자동으로 다시 시도합니다.")
+    time.sleep(5)
+    st.rerun()
+    st.stop() # 여기서 코드 실행 중단! (IndexError 방지)
 current_price = df['close'].iloc[-1]
 current_rsi = df['rsi'].iloc[-1]
 last_volume = df['volume'].iloc[-1]
