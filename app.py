@@ -192,22 +192,28 @@ for name, inv in SCAN_INTERVALS.items():
                 needs_update = True
 
     # [진입 로직] 70점 이상 강력 매수 시 기록
+# [진입 로직] 70점 이상 강력 매수 시 기록
     if score >= 70:
-        if log_df.empty or not ((log_df["진입시간"] == curr_time_str) & (log_df["차트간격"] == name)).any():
+        # 1. 이 간격(예: 일봉)에 이미 '대기중'인 포지션이 있는지 확인 (1포지션 자물쇠)
+        is_pending = False
+        if not log_df.empty:
+            is_pending = not log_df[(log_df["상태"] == "⏳ 대기중") & (log_df["차트간격"] == name)].empty
+        
+        # 2. 구글 시트의 시간 자동 변환 꼼수 무력화 (날짜/시간 데이터로 강제 변환 후 비교)
+        is_same_candle = False
+        if not log_df.empty:
+            interval_logs = log_df[log_df["차트간격"] == name]
+            if not interval_logs.empty:
+                # 에러 무시하고 강제로 시간 형식으로 맞춰서 비교
+                saved_times = pd.to_datetime(interval_logs["진입시간"], errors='coerce')
+                if (saved_times == curr_time_dt).any():
+                    is_same_candle = True
+
+        # 대기 중인 포지션도 없고, 이 캔들에서 진입한 적도 없을 때만 단 한 번 새롭게 기록!
+        if not is_pending and not is_same_candle:
             new_trade = pd.DataFrame([{"진입시간": curr_time_str, "차트간격": name, "진입가": curr_price, "승률점수": score, "상태": "⏳ 대기중", "청산시간": "-", "청산가": 0.0, "수익률(%)": 0.0}])
             log_df = pd.concat([log_df, new_trade], ignore_index=True)
             needs_update = True
-
-    # [고래 알림] 거래량 3배 이상 + 50만불 이상일 때 (텔레그램 전송)
-    usdt_volume = scan_df['volume'].iloc[-1] * curr_price
-    if v_ratio >= 3.0 and usdt_volume >= 500000:
-        alert_key = f"{name}_{curr_time_str}"
-        if alert_key not in st.session_state.whale_alerts:
-            is_buy_whale = curr_price > scan_df['open'].iloc[-1]
-            emoji = "🐳 [매수 찐고래]" if is_buy_whale else "🦈 [매도 상어]"
-            msg = f"{emoji} ({name})\n코인: {selected_coin}\n현재가: {curr_price:,.2f}\n거래대금: ${usdt_volume:,.0f}\n🎯 알고리즘 점수: {score}점"
-            send_telegram_msg(msg)
-            st.session_state.whale_alerts[alert_key] = True
 
 st.sidebar.success("✅ 4개 다중 프레임 감시 중")
 if needs_update:
