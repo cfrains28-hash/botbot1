@@ -229,7 +229,7 @@ with chart_container:
 
     fig.add_trace(go.Bar(x=vp['volume'], y=vp['price_mid'], orientation='h', marker=dict(color=vp['volume'], colorscale='Viridis', showscale=False), name='매물대'), row=1, col=1)
     fig.add_trace(go.Candlestick(x=df['time'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='가격'), row=1, col=2)
-    for ma, color in zip(['ma5', 'ma20', 'ma60'], ['white', 'orange', 'deepskyblue']):
+    for ma, color in zip(['ma5', 'ma20', 'ma60'], ['lightgreen', 'orange', 'deepskyblue']):
         fig.add_trace(go.Scatter(x=df['time'], y=df[ma], line=dict(color=color, width=1.5), name=ma.upper()), row=1, col=2)
 
     # ==========================================
