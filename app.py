@@ -186,9 +186,30 @@ if alert_price > 0 and current_price <= alert_price:
         st.session_state.alert_sent = True 
 elif current_price > alert_price: st.session_state.alert_sent = False
 
+# ==========================================
+# 🚨 [수정 1] 텔레그램 알림: 매수/매도 고래 분리
+# ==========================================
 if vol_ratio >= 3.0:
     if 'last_whale_time' not in st.session_state or st.session_state.last_whale_time != df['time'].iloc[-1]:
-        send_telegram_msg(f"🐋 [{selected_coin} 고래 출현! ({selected_interval_name})]\n현재가: {current_price:,.4f}\n진입승률: {total_prob}%")
+        
+        # 현재 캔들이 양봉인지 음봉인지 판별
+        current_open = df['open'].iloc[-1]
+        is_buy_whale = current_price > current_open
+        
+        if is_buy_whale:
+            whale_title = "🐳 [매수 고래 출현]"
+            whale_desc = "세력이 위로 긁으며 매집했습니다!"
+        else:
+            whale_title = "🦈 [매도 고래 투하]"
+            whale_desc = "세력이 물량을 시장가로 던졌습니다!"
+
+        msg = f"{whale_title} ({selected_interval_name})\n"
+        msg += f"코인: {selected_coin}\n"
+        msg += f"현재가: {current_price:,.4f}\n"
+        msg += f"상황: {whale_desc}\n"
+        msg += f"진입승률: {total_prob}%"
+        
+        send_telegram_msg(msg)
         st.session_state.last_whale_time = df['time'].iloc[-1]
 
 # 차트 그리기
@@ -205,9 +226,26 @@ with chart_container:
     for ma, color in zip(['ma5', 'ma20', 'ma60'], ['white', 'orange', 'deepskyblue']):
         fig.add_trace(go.Scatter(x=df['time'], y=df[ma], line=dict(color=color, width=1.5), name=ma.upper()), row=1, col=2)
 
+    # ==========================================
+    # 🚨 [수정 2] 차트 아이콘: 매수(🐳)/매도(🦈) 구분해서 찍기
+    # ==========================================
     whale_spots = df[df['volume'] > (df['volume'].rolling(window=20).mean() * 3.0)]
     for _, row in whale_spots.iterrows():
-        fig.add_annotation(x=row['time'], y=row['high'], text="🐋", showarrow=True, arrowhead=1, ax=0, ay=-35, row=1, col=2)
+        is_buy = row['close'] > row['open']
+        
+        # 매수는 캔들 아래에 띄우고, 매도는 캔들 위에 띄움
+        emoji = "🐳매수" if is_buy else "🦈매도"
+        color = "lime" if is_buy else "red"
+        y_position = row['low'] if is_buy else row['high']
+        ay_value = 35 if is_buy else -35
+        
+        fig.add_annotation(
+            x=row['time'], y=y_position, 
+            text=f"<span style='color:{color}; font-weight:bold;'>{emoji}</span>", 
+            showarrow=True, arrowhead=1, arrowcolor=color, 
+            ax=0, ay=ay_value, 
+            row=1, col=2
+        )
 
     fig.add_hline(y=stop_loss_price, line_dash="dash", line_color="magenta", annotation_text=f"🛑 자동 손절선", annotation_position="bottom right", row=1, col=2)
     fig.add_trace(go.Scatter(x=df['time'], y=df['rsi'], line=dict(color='yellow', width=1.5), name='RSI'), row=2, col=2)
