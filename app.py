@@ -211,21 +211,35 @@ if not df_ui.empty:
     with c2: st.markdown(f"<div class='score-card'><h4>현재 상태</h4><h2>{'🔥 강력 매수' if u_score >= 70 else '👀 관망'}</h2></div>", unsafe_allow_html=True)
     with c3: st.markdown(f"<div class='score-card'><h4>🛑 손절가</h4><h2 style='color:#FF4444;'>{u_poc*0.998:,.2f}</h2></div>", unsafe_allow_html=True)
 
-    # [중앙 메인 차트]
+# [중앙 메인 차트] (RSI 하단 차트 제거 및 매물대 색상 변경 버전)
     show_vp = st.toggle("📊 매물대 차트 켜기", value=False)
     if show_vp:
-        fig = make_subplots(rows=2, cols=2, shared_xaxes=True, shared_yaxes=True, column_widths=[0.2, 0.8], row_heights=[0.8, 0.2], specs=[[{}, {}], [{}, {}]], horizontal_spacing=0.01, vertical_spacing=0.05)
-        fig.add_trace(go.Bar(x=u_vp['volume'], y=u_vp['mid'], orientation='h', marker=dict(color='gray', opacity=0.3), name='매물대'), row=1, col=1)
+        # 🚨 [변경 1] 1행 2열 구조로 변경 (행 높이는 1.0으로 100%)
+        fig = make_subplots(rows=1, cols=2, column_widths=[0.25, 0.75], row_heights=[1.0], shared_yaxes=True, horizontal_spacing=0.01)
+        
+        # 🚨 [변경 2] 매물대 차트 색상 변경: gray -> Viridis 컬러 스케일 적용 (showscale=False로 컬러바 숨김)
+        fig.add_trace(go.Bar(x=u_vp['volume'], y=u_vp['mid'], orientation='h', marker=dict(color=u_vp['volume'], colorscale='Viridis', showscale=False), name='매물대'), row=1, col=1)
+        
         c_col = 2
     else:
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.8, 0.2], vertical_spacing=0.05)
+        # 매물대 차트를 끄면 1행 1열
+        fig = make_subplots(rows=1, cols=1)
         c_col = 1
     
+    # 캔들 차트 및 이평선 추가 (기존 코드 유지)
     fig.add_trace(go.Candlestick(x=df_ui['time'], open=df_ui['open'], high=df_ui['high'], low=df_ui['low'], close=df_ui['close'], name='Price'), row=1, col=c_col)
     for m, c in zip(['ma5','ma20','ma60'], ['white','orange','deepskyblue']):
         fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui[m], line=dict(color=c, width=1), name=m.upper()), row=1, col=c_col)
-    
+
+    # 🚨 [변경 3] RSI 그래프 추가 코드 블록 전체 삭제됨!
+
+    # 차트 레이아웃 설정 (Rangeslider 비활성화 유지)
     fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=0, r=10, t=30, b=0))
+    
+    # X축 형식 설정 (rangeslider_visible=False 필수)
+    x_format = '%m-%d %H:%M' if "분봉" in sel_name or "시간봉" in sel_name else '%Y-%m-%d'
+    fig.update_xaxes(tickformat=x_format, rangeslider_visible=False, row=1, col=c_col)
+    
     st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
