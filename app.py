@@ -233,12 +233,17 @@ if not df_ui.empty:
     fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=c_col) # 과매수 선
     fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=c_col) # 과매도 선
 
-    # 레이아웃 정리
-    fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=0, r=10, t=30, b=0))
+    #레이아웃 정리
+    fig.update_layout(height=800, template="plotly_dark", margin=dict(l=0, r=10, t=30, b=0))
     x_format = '%m-%d %H:%M' if "분봉" in sel_name or "시간봉" in sel_name else '%Y-%m-%d'
-    fig.update_xaxes(showticklabels=False, row=1, col=c_col) # 위쪽 캔들 차트 시간 라벨 숨김 (깔끔하게)
-    fig.update_xaxes(tickformat=x_format, rangeslider_visible=False, row=2, col=c_col) # 아래 RSI 쪽에만 시간 표시
     
+    # 🚨 [핵심] 모든 X축에서 저 쓸데없는 위치 조절 슬라이더(Rangeslider)를 강제 사살!
+    fig.update_xaxes(rangeslider_visible=False) 
+    
+    # 시간 글자 표시 정리 (위 캔들은 숨기고, 아래 RSI에만 표시)
+    fig.update_xaxes(showticklabels=False, row=1, col=c_col) 
+    fig.update_xaxes(tickformat=x_format, row=2, col=c_col) 
+      
     st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
