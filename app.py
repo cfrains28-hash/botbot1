@@ -187,27 +187,33 @@ if alert_price > 0 and current_price <= alert_price:
 elif current_price > alert_price: st.session_state.alert_sent = False
 
 # ==========================================
-# 🚨 [수정 1] 텔레그램 알림: 매수/매도 고래 분리
+# 🚨 [수정] 텔레그램 알림: 찐 고래 & 고승률 필터링
 # ==========================================
-if vol_ratio >= 3.0:
+# 1. 현재 캔들에서 터진 '진짜 돈(USDT)' 계산
+usdt_volume = last_volume * current_price 
+min_usdt_threshold = 500000 # 최소 기준: 50만 달러 (약 6.5억 원) - 입맛에 맞게 조절하세요!
+
+# 2. 호들갑 방지 3중 필터 적용
+# (거래량 3배 이상) AND (50만 달러 이상 썼을 것) AND (승률이 40% 이상인 볼만한 자리일 것)
+if vol_ratio >= 3.0 and usdt_volume >= min_usdt_threshold and total_prob >= 40:
     if 'last_whale_time' not in st.session_state or st.session_state.last_whale_time != df['time'].iloc[-1]:
         
-        # 현재 캔들이 양봉인지 음봉인지 판별
         current_open = df['open'].iloc[-1]
         is_buy_whale = current_price > current_open
         
         if is_buy_whale:
-            whale_title = "🐳 [매수 고래 출현]"
-            whale_desc = "세력이 위로 긁으며 매집했습니다!"
+            whale_title = "🐳 [매수 찐고래 출현]"
+            whale_desc = "세력이 뭉칫돈으로 위로 긁었습니다!"
         else:
-            whale_title = "🦈 [매도 고래 투하]"
-            whale_desc = "세력이 물량을 시장가로 던졌습니다!"
+            whale_title = "🦈 [매도 큰상어 투하]"
+            whale_desc = "세력이 뭉칫돈을 시장가로 던졌습니다!"
 
         msg = f"{whale_title} ({selected_interval_name})\n"
         msg += f"코인: {selected_coin}\n"
         msg += f"현재가: {current_price:,.4f}\n"
+        msg += f"터진금액: ${usdt_volume:,.0f}\n" # 얼마 썼는지도 알려줍니다!
         msg += f"상황: {whale_desc}\n"
-        msg += f"진입승률: {total_prob}%"
+        msg += f"🎯 진입승률: {total_prob}%"
         
         send_telegram_msg(msg)
         st.session_state.last_whale_time = df['time'].iloc[-1]
