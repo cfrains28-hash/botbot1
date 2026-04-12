@@ -56,25 +56,37 @@ def send_telegram_msg(message):
     except: pass
 
 # ==========================================
-# 3. 데이터 로드 및 점수 계산 함수
+# 3. 데이터 로드 및 점수 계산 함수 (우회 접속 패치 완료)
 # ==========================================
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    url = "https://api.binance.com/api/v3/klines"
-    try:
-        params = {"symbol": symbol, "interval": interval, "limit": 300}
-        response = requests.get(url, params=params, headers=headers, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-        else: return pd.DataFrame()
-    except: return pd.DataFrame()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    # 🚨 바이낸스 서버가 막힐 때를 대비한 5개의 예비 우회로 
+    endpoints = [
+        "https://data-api.binance.vision/api/v3/klines", 
+        "https://api.binance.com/api/v3/klines", 
+        "https://api1.binance.com/api/v3/klines",
+        "https://api2.binance.com/api/v3/klines",
+        "https://api3.binance.com/api/v3/klines"
+    ]
+    
+    data = None
+    for url in endpoints:
+        try:
+            params = {"symbol": symbol, "interval": interval, "limit": 300}
+            response = requests.get(url, params=params, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                break # 성공하면 바로 탈출!
+        except: continue # 실패하면 다음 주소로 재시도
+            
+    if data is None or not isinstance(data, list): return pd.DataFrame()
 
     df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
     df['time'] = pd.to_datetime(df['time'], unit='ms')
     for col in ['open', 'high', 'low', 'close', 'volume']: df[col] = pd.to_numeric(df[col])
         
-    if len(df) < 60: return df
+    if len(df) < 60: return pd.DataFrame()
 
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
