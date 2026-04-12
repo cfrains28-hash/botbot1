@@ -223,10 +223,13 @@ if not df_ui.empty:
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.8, 0.2], vertical_spacing=0.05)
         c_col = 1
     
-    # 1. 메인 캔들 차트 (1행)
+   # 1. 메인 캔들 차트 (1행)
     fig.add_trace(go.Candlestick(x=df_ui['time'], open=df_ui['open'], high=df_ui['high'], low=df_ui['low'], close=df_ui['close'], name='Price'), row=1, col=c_col)
     for m, c in zip(['ma5','ma20','ma60'], ['white','orange','deepskyblue']):
         fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui[m], line=dict(color=c, width=1), name=m.upper()), row=1, col=c_col)
+
+    # 🚨🚨 [여기입니다! 생명줄 복구 코드 복붙!!] 🚨🚨
+    fig.add_hline(y=u_poc*0.998, line_dash="dash", line_color="magenta", annotation_text=f"🛑 손절가: {u_poc*0.998:,.2f}", annotation_position="bottom right", row=1, col=c_col)
 
     # 2. 🚨 소중한 RSI 차트 복구 (2행) 🚨
     fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui['rsi'], line=dict(color='yellow', width=1.5), name='RSI'), row=2, col=c_col)
