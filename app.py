@@ -19,17 +19,12 @@ st.markdown(
     .block-container { padding: 3rem 1rem 1rem 1rem !important; }
     [data-testid="stSidebar"] { min-width: 250px !important; max-width: 250px !important; }
     .score-card {
-        background-color: rgba(255, 255, 255, 0.05);
-        padding: 15px;
-        border-radius: 10px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 20px;
+        background-color: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 10px;
+        text-align: center; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 20px;
     }
     div.row-widget.stRadio > div { flex-direction: row; align-items: center; justify-content: center; }
     </style>
-    """,
-    unsafe_allow_html=True
+    """, unsafe_allow_html=True
 )
 
 # ==========================================
@@ -48,42 +43,33 @@ if 'whale_alerts' not in st.session_state: st.session_state.whale_alerts = {}
 
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    params = {"chat_id": CHAT_ID, "text": message}
-    try: requests.get(url, params=params)
+    try: requests.get(url, params={"chat_id": CHAT_ID, "text": message})
     except: pass
 
 # ==========================================
-# 3. 데이터 로드 (멀티 서버 우회 접속 패치)
+# 3. 데이터 로드 및 점수 계산
 # ==========================================
 @st.cache_data(ttl=10)
 def load_data(interval, symbol):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    endpoints = [
-        "https://data-api.binance.vision/api/v3/klines", 
-        "https://api.binance.com/api/v3/klines", 
-        "https://api1.binance.com/api/v3/klines",
-        "https://api2.binance.com/api/v3/klines"
-    ]
-    
+    endpoints = ["https://data-api.binance.vision/api/v3/klines", "https://api.binance.com/api/v3/klines"]
     data = None
     for url in endpoints:
         try:
-            params = {"symbol": symbol, "interval": interval, "limit": 300}
-            response = requests.get(url, params=params, headers=headers, timeout=5)
+            response = requests.get(url, params={"symbol": symbol, "interval": interval, "limit": 300}, headers=headers, timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 break
         except: continue
             
-    if data is None or not isinstance(data, list): return pd.DataFrame()
+    if not data: return pd.DataFrame()
 
-    df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'qav', 'num_trades', 'tbb', 'tbq', 'ignore'])
+    df = pd.DataFrame(data, columns=['time','open','high','low','close','volume','ct','qav','nt','tbb','tbq','i'])
     df['time'] = pd.to_datetime(df['time'], unit='ms')
-    for col in ['open', 'high', 'low', 'close', 'volume']: df[col] = pd.to_numeric(df[col])
+    for col in ['open','high','low','close','volume']: df[col] = pd.to_numeric(df[col])
         
     if len(df) < 60: return df
 
-    # 지표 계산
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
@@ -100,7 +86,6 @@ def calculate_logic(df):
     avg_v = df['volume'].iloc[-21:-1].mean()
     v_ratio = last_v / avg_v if avg_v > 0 else 0
 
-    # 매물대 지지선
     bins = 50
     df['zone'] = pd.cut(df['close'], bins=bins)
     vp = df.groupby('zone', observed=False)['volume'].sum().reset_index()
@@ -108,33 +93,42 @@ def calculate_logic(df):
     support = vp[vp['mid'] < curr_p]
     poc_p = support.loc[support['volume'].idxmax(), 'mid'] if not support.empty else curr_p
 
-    # 보수적 70점 채점
     ma_s = 40 if (curr_p > df['ma60'].iloc[-1] and df['ma5'].iloc[-1] > df['ma20'].iloc[-1] > df['ma60'].iloc[-1]) else (20 if curr_p > df['ma60'].iloc[-1] else 0)
     vol_s = 30 if v_ratio >= 3.0 else (15 if v_ratio >= 1.5 else 0)
     pos_s = 30 if curr_p >= poc_p * 0.99 else 0
-    
     return ma_s + vol_s + pos_s, v_ratio, poc_p, vp
 
 # ==========================================
-# 4. 사이드바 메인 설정 및 지표
+# 4. 사이드바 (스나이퍼 설정 추가)
 # ==========================================
 st.sidebar.markdown("### ⚙️ 메인 설정")
-coin_list = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE']
-selected_coin = st.sidebar.selectbox("🪙 코인 선택", coin_list, index=0)
+selected_coin = st.sidebar.selectbox("🪙 코인 선택", ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'], index=0)
 symbol = f"{selected_coin}USDT"
 
+if st.session_state.last_coin != selected_coin:
+    st.session_state.last_coin = selected_coin
+    st.session_state.whale_alerts = {}
+
 st.sidebar.markdown("---")
-alert_price = st.sidebar.number_input(f"🚨 {selected_coin} 알림 가격(USDT):", value=0.0, format="%.2f")
+st.sidebar.markdown("### 🔫 스나이퍼 매매 설정")
+leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=10)
+tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=30.0, step=5.0, help="배율이 적용된 최종 목표 수익률입니다.")
+use_sl = st.sidebar.toggle("🛑 마젠타 지지선 자동손절", value=True)
+fee_rate = 0.05 # 바이낸스 테이커 고정 수수료 (%)
+
 auto_refresh = st.sidebar.checkbox("🔄 실시간 자동 새로고침", value=True)
 
-# ------------------------------------------
-# 5. [핵심] 백그라운드 4종 스캔 (15m, 1h, 4h, 1d)
-# ------------------------------------------
+# ==========================================
+# 5. 백그라운드 스캔 (익절/손절 로직 탑재)
+# ==========================================
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     log_df = conn.read(worksheet=selected_coin, ttl=0)
+    # V3.2 신규 컬럼 없으면 초기화
+    if "순수익(ROE%)" not in log_df.columns:
+        log_df = pd.DataFrame(columns=["진입시간", "차트간격", "진입가", "목표가", "손절가", "승률점수", "상태", "청산시간", "청산가", "순수익(ROE%)"])
 except:
-    log_df = pd.DataFrame(columns=["진입시간", "차트간격", "진입가", "승률점수", "상태", "청산시간", "청산가", "수익률(%)"])
+    log_df = pd.DataFrame(columns=["진입시간", "차트간격", "진입가", "목표가", "손절가", "승률점수", "상태", "청산시간", "청산가", "순수익(ROE%)"])
 
 needs_update = False
 SCAN_LIST = {"15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d"}
@@ -145,50 +139,60 @@ for name, inv in SCAN_LIST.items():
     
     s_curr_p = s_df['close'].iloc[-1]
     s_curr_t = s_df['time'].iloc[-1]
-    s_score, s_v_ratio, _, _ = calculate_logic(s_df)
+    s_score, s_v_ratio, s_poc, _ = calculate_logic(s_df)
     
-    # 정산 로직
+    # [청산 로직: 익절 / 손절 / 시간종료]
     if not log_df.empty:
         p_idx = log_df[(log_df["상태"] == "⏳ 대기중") & (log_df["차트간격"] == name)].index
         for idx in p_idx:
-            if s_curr_t > pd.to_datetime(log_df.loc[idx, "진입시간"]):
-                ent_p = float(log_df.loc[idx, "진입가"])
-                pnl = round(((s_curr_p - ent_p) / ent_p) * 100, 2)
-                log_df.loc[idx, ["청산시간","청산가","수익률(%)","상태"]] = [str(s_curr_t), s_curr_p, pnl, "🟢 승리" if pnl > 0 else "🔴 패배"]
+            ent_p = float(log_df.loc[idx, "진입가"])
+            tar_p = float(log_df.loc[idx, "목표가"])
+            sl_p = float(log_df.loc[idx, "손절가"])
+            
+            # 수수료 차감 순수익(ROE) 계산 (왕복 0.1% * 배율)
+            gross_roe = ((s_curr_p - ent_p) / ent_p) * 100 * leverage
+            net_roe = gross_roe - (fee_rate * 2 * leverage)
+            
+            is_tp = s_curr_p >= tar_p
+            is_sl = use_sl and (s_curr_p <= sl_p)
+            is_time_over = s_curr_t > pd.to_datetime(log_df.loc[idx, "진입시간"])
+            
+            if is_tp or is_sl or is_time_over:
+                if is_tp: status = "🎯 익절완료"
+                elif is_sl: status = "🛑 자동손절"
+                else: status = "🟢 시간종료(승)" if net_roe > 0 else "🔴 시간종료(패)"
+                
+                log_df.loc[idx, ["청산시간", "청산가", "순수익(ROE%)", "상태"]] = [str(s_curr_t), s_curr_p, round(net_roe, 2), status]
                 needs_update = True
 
-    # 진입 로직 (보수적 70점 + 중복 방지)
+    # [진입 로직: 70점 이상]
     if s_score >= 70:
         is_p = not log_df[(log_df["상태"] == "⏳ 대기중") & (log_df["차트간격"] == name)].empty if not log_df.empty else False
         is_s = (pd.to_datetime(log_df[log_df["차트간격"]==name]["진입시간"], errors='coerce') == s_curr_t).any() if not log_df.empty else False
         
         if not is_p and not is_s:
-            new = pd.DataFrame([{"진입시간": str(s_curr_t), "차트간격": name, "진입가": s_curr_p, "승률점수": s_score, "상태": "⏳ 대기중", "청산시간": "-", "청산가": 0.0, "수익률(%)": 0.0}])
+            # 타겟가(TP) 및 손절가(SL) 진입 시점 기준으로 계산하여 장부에 기록
+            target_price = s_curr_p * (1 + (tp_roe / 100 / leverage))
+            stop_price = s_poc * 0.998
+            
+            new = pd.DataFrame([{
+                "진입시간": str(s_curr_t), "차트간격": name, "진입가": s_curr_p, 
+                "목표가": round(target_price, 2), "손절가": round(stop_price, 2), 
+                "승률점수": s_score, "상태": "⏳ 대기중", "청산시간": "-", "청산가": 0.0, "순수익(ROE%)": 0.0
+            }])
             log_df = pd.concat([log_df, new], ignore_index=True)
             needs_update = True
-
-    # 고래 알림 (텔레그램)
-    if s_v_ratio >= 3.0 and (s_curr_p * s_df['volume'].iloc[-1]) >= 500000:
-        a_key = f"{name}_{str(s_curr_t)}"
-        if a_key not in st.session_state.whale_alerts:
-            is_buy = s_curr_p > s_df['open'].iloc[-1]
-            send_telegram_msg(f"{'🐳매수' if is_buy else '🦈매도'} ({name})\n가: {s_curr_p:,.2f}\n점수: {s_score}")
-            st.session_state.whale_alerts[a_key] = True
 
 if needs_update:
     try: conn.update(worksheet=selected_coin, data=log_df)
     except: pass
 
-# ------------------------------------------
-# 6. 메인 화면 출력 (UI)
-# ------------------------------------------
-st.title(f"📈 {selected_coin} 전지적 세력 시점 V3.1")
+# ==========================================
+# 6. 메인 화면 UI 및 차트
+# ==========================================
+st.title(f"📈 {selected_coin} 전지적 세력 시점 V3.2 (스나이퍼 모드)")
 
-# 화면용 차트 간격 (주봉, 월봉 추가!)
-interval_ui = {
-    "1분봉": "1m", "5분봉": "5m", "15분봉": "15m", "1시간봉": "1h", 
-    "4시간봉": "4h", "일봉": "1d", "주봉": "1w", "월봉": "1M"
-}
+interval_ui = {"1분봉": "1m", "5분봉": "5m", "15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d", "주봉": "1w", "월봉": "1M"}
 sel_name = st.radio("⏰ 차트 화면 간격", list(interval_ui.keys()), horizontal=True, index=5)
 df_ui = load_data(interval_ui[sel_name], symbol)
 
@@ -197,74 +201,59 @@ if not df_ui.empty:
     u_price = df_ui['close'].iloc[-1]
     u_rsi = df_ui['rsi'].iloc[-1]
     
-    # [사이드바 실시간 지표 복구]
+    # 사이드바 지표 표기
     st.sidebar.markdown("---")
     st.sidebar.metric(label=f"현재 {selected_coin} 가격", value=f"{u_price:,.2f}")
-    r_stat = "🔴 과매수" if u_rsi >= 70 else "🟢 과매도" if u_rsi <= 30 else "⚪ 중립"
-    st.sidebar.markdown(f"**RSI (14):** `{u_rsi:.1f}` ({r_stat})")
+    st.sidebar.markdown(f"**RSI (14):** `{u_rsi:.1f}`")
     v_stat = ("🐳 고래!", "orange") if u_v_ratio >= 3.0 else ("🐬 돌고래", "blue") if u_v_ratio >= 1.5 else ("🐟 멸치", "gray")
     st.sidebar.markdown(f"**거래량 강도:** :{v_stat[1]}[{v_stat[0]} ({u_v_ratio:.1f}x)]")
     
-    # [상단 점수판]
+    # 상단 점수판
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown(f"<div class='score-card'><h4>🎯 화면 승률 ({sel_name})</h4><h2 style='color:#00FF00;'>{u_score}%</h2></div>", unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='score-card'><h4>현재 상태</h4><h2>{'🔥 강력 매수' if u_score >= 70 else '👀 관망'}</h2></div>", unsafe_allow_html=True)
-    with c3: st.markdown(f"<div class='score-card'><h4>🛑 손절가</h4><h2 style='color:#FF4444;'>{u_poc*0.998:,.2f}</h2></div>", unsafe_allow_html=True)
+    with c3: st.markdown(f"<div class='score-card'><h4>🛑 화면상 지지선 (참고용)</h4><h2 style='color:#FF4444;'>{u_poc*0.998:,.2f}</h2></div>", unsafe_allow_html=True)
 
-# [중앙 메인 차트] (RSI 복구 완료)
+    # 캔들 및 매물대 차트
     show_vp = st.toggle("📊 매물대 차트 켜기", value=False)
     if show_vp:
-        # 매물대 켜면 2행 2열 (RSI는 아래쪽)
         fig = make_subplots(rows=2, cols=2, shared_xaxes=True, shared_yaxes=True, column_widths=[0.25, 0.75], row_heights=[0.8, 0.2], specs=[[{}, {}], [{}, {}]], horizontal_spacing=0.01, vertical_spacing=0.05)
         fig.add_trace(go.Bar(x=u_vp['volume'], y=u_vp['mid'], orientation='h', marker=dict(color=u_vp['volume'], colorscale='Viridis', showscale=False), name='매물대'), row=1, col=1)
         c_col = 2
     else:
-        # 매물대 끄면 2행 1열 (위 캔들, 아래 RSI)
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.8, 0.2], vertical_spacing=0.05)
         c_col = 1
     
-   # 1. 메인 캔들 차트 (1행)
     fig.add_trace(go.Candlestick(x=df_ui['time'], open=df_ui['open'], high=df_ui['high'], low=df_ui['low'], close=df_ui['close'], name='Price'), row=1, col=c_col)
     for m, c in zip(['ma5','ma20','ma60'], ['white','orange','deepskyblue']):
         fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui[m], line=dict(color=c, width=1), name=m.upper()), row=1, col=c_col)
-
-    # 🚨🚨 [여기입니다! 생명줄 복구 코드 복붙!!] 🚨🚨
+    
+    # 🚨 마젠타색 손절가 라인 (생명선 복구 완료 버전)
     fig.add_hline(y=u_poc*0.998, line_dash="dash", line_color="magenta", annotation_text=f"🛑 손절가: {u_poc*0.998:,.2f}", annotation_position="bottom right", row=1, col=c_col)
 
-    # 2. 🚨 소중한 RSI 차트 복구 (2행) 🚨
+    # 🚨 소중한 RSI 차트 (하단 배치 완료)
     fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui['rsi'], line=dict(color='yellow', width=1.5), name='RSI'), row=2, col=c_col)
-    fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=c_col) # 과매수 선
-    fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=c_col) # 과매도 선
+    fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=c_col)
+    fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=c_col)
 
-    #레이아웃 정리
+    # 레이아웃 정리 (스크롤바 완전 사살)
     fig.update_layout(height=800, template="plotly_dark", margin=dict(l=0, r=10, t=30, b=0))
     x_format = '%m-%d %H:%M' if "분봉" in sel_name or "시간봉" in sel_name else '%Y-%m-%d'
-    
-    # 🚨 [핵심] 모든 X축에서 저 쓸데없는 위치 조절 슬라이더(Rangeslider)를 강제 사살!
     fig.update_xaxes(rangeslider_visible=False) 
-    
-    # 시간 글자 표시 정리 (위 캔들은 숨기고, 아래 RSI에만 표시)
     fig.update_xaxes(showticklabels=False, row=1, col=c_col) 
     fig.update_xaxes(tickformat=x_format, row=2, col=c_col) 
-      
+    
     st.plotly_chart(fig, use_container_width=True)
 
-# ------------------------------------------
-# 7. [하단] 구글 시트 장부 (대장님 지시대로 맨 밑으로!)
-# ------------------------------------------
+# ==========================================
+# 7. 구글 시트 장부 (스나이퍼 기록 모드)
+# ==========================================
 st.markdown("---")
-with st.expander("📊 구글 시트 실전 시뮬레이션 장부 (15m, 1h, 4h, 1d 통합 감시)", expanded=True):
+with st.expander("📊 구글 시트 실전 시뮬레이션 장부 (수수료 차감/배율 적용 완료)", expanded=True):
     if not log_df.empty:
         st.dataframe(log_df.sort_values("진입시간", ascending=False), use_container_width=True)
     else:
-        st.info("아직 기록된 타점이 없습니다.")
-
-# 가격 알림 로직
-if alert_price > 0 and u_price <= alert_price:
-    if not st.session_state.alert_sent:
-        send_telegram_msg(f"⚠️ {selected_coin} 설정가 도달! ({u_price:,.2f})")
-        st.session_state.alert_sent = True
-elif u_price > alert_price: st.session_state.alert_sent = False
+        st.info("아직 기록된 타점이 없습니다. (70점 이상 필살기 대기 중)")
 
 if auto_refresh:
     time.sleep(15)
