@@ -112,7 +112,7 @@ if st.session_state.last_coin != selected_coin:
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔫 스나이퍼 매매 설정")
 leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=10)
-tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=30.0, step=5.0, help="배율이 적용된 최종 목표 수익률입니다.")
+tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=15.0, step=5.0, help="배율이 적용된 최종 목표 수익률입니다.")
 use_sl = st.sidebar.toggle("🛑 마젠타 지지선 자동손절", value=True)
 fee_rate = 0.05 # 바이낸스 테이커 고정 수수료 (%)
 
@@ -173,7 +173,7 @@ for name, inv in SCAN_LIST.items():
         if not is_p and not is_s:
             # 타겟가(TP) 및 손절가(SL) 진입 시점 기준으로 계산하여 장부에 기록
             target_price = s_curr_p * (1 + (tp_roe / 100 / leverage))
-            stop_price = s_poc * 0.998
+            stop_price = s_poc * 0.990
             
             new = pd.DataFrame([{
                 "진입시간": str(s_curr_t), "차트간격": name, "진입가": s_curr_p, 
