@@ -111,7 +111,7 @@ if st.session_state.last_coin != selected_coin:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔫 스나이퍼 매매 설정")
-leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=10)
+leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=5)
 tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=15.0, step=5.0, help="배율이 적용된 최종 목표 수익률입니다.")
 use_sl = st.sidebar.toggle("🛑 마젠타 지지선 자동손절", value=True)
 fee_rate = 0.05 # 바이낸스 테이커 고정 수수료 (%)
