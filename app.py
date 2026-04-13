@@ -65,7 +65,7 @@ def load_data(interval, symbol):
     if not data: return pd.DataFrame()
 
     df = pd.DataFrame(data, columns=['time','open','high','low','close','volume','ct','qav','nt','tbb','tbq','i'])
-    df['time'] = pd.to_datetime(df['time'], unit='ms')
+    df['time'] = pd.to_datetime(df['time'], unit='ms') + pd.Timedelta(hours=9)
     for col in ['open','high','low','close','volume']: df[col] = pd.to_numeric(df[col])
         
     if len(df) < 60: return df
