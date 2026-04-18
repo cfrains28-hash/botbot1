@@ -111,11 +111,11 @@ if st.session_state.last_coin != selected_coin:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔫 스나이퍼 매매 설정")
-min_score = st.sidebar.slider("🔥 최소 진입 점수", min_value=70, max_value=100, value=85, step=5, help="점수가 높을수록 진입 횟수는 줄지만 승률이 올라갑니다.")
+min_score = st.sidebar.slider("🔥 최소 진입 점수", min_value=70, max_value=100, value=90, step=5, help="점수가 높을수록 진입 횟수는 줄지만 승률이 올라갑니다.")
 use_mtf = st.sidebar.toggle("🌐 다중 시간대(4H) 필터", value=True, help="단기봉 진입 시 4시간봉이 상승장일 때만 진입합니다.")
 max_hold_candles = st.sidebar.number_input("⏳ 최대 보유 캔들 수", min_value=1, max_value=50, value=3, help="지정된 캔들 수가 지나면 시간종료로 청산됩니다.")
 leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=5)
-tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=10.0, step=1.0, help="배율이 적용된 최종 목표 수익률입니다.")
+tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=3.0, step=1.0, help="배율이 적용된 최종 목표 수익률입니다.")
 use_sl = st.sidebar.toggle("🛑 마젠타 지지선 자동손절", value=True)
 fee_rate = 0.05 # 바이낸스 테이커 고정 수수료 (%)
 
