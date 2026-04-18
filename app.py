@@ -31,6 +31,7 @@ st.markdown(
 # 2. 시스템 초기화 및 텔레그램 설정
 # ==========================================
 try:
+    # 회원님이 스트림릿 클라우드에 세팅하신 시크릿 정보를 안전하게 불러옵니다.
     TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     CHAT_ID = st.secrets["CHAT_ID"]
 except:
@@ -41,6 +42,7 @@ if 'alert_sent' not in st.session_state: st.session_state.alert_sent = False
 if 'last_coin' not in st.session_state: st.session_state.last_coin = 'BTC'
 if 'whale_alerts' not in st.session_state: st.session_state.whale_alerts = {}
 
+# 텔레그램 메시지 발송 함수 (정상 작동 준비 완료)
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: requests.get(url, params={"chat_id": CHAT_ID, "text": message})
@@ -170,6 +172,9 @@ for name, inv in SCAN_LIST.items():
                 
                 log_df.loc[idx, ["청산시간", "청산가", "순수익(ROE%)", "상태"]] = [str(s_curr_t), s_curr_p, round(net_roe, 2), status]
                 needs_update = True
+                
+                # 🚨 [추가된 부분] 청산 시 텔레그램 알림 발송
+                send_telegram_msg(f"[{status}] {selected_coin} {name}\n청산가: {s_curr_p:,.2f}\n수익률: {net_roe:.2f}%")
 
     # [진입 로직: 다중 시간대 필터 및 설정 점수 이상]
     mtf_pass = True
@@ -193,6 +198,9 @@ for name, inv in SCAN_LIST.items():
             }])
             log_df = pd.concat([log_df, new], ignore_index=True)
             needs_update = True
+            
+            # 🚨 [추가된 부분] 신규 진입 시 텔레그램 알림 발송
+            send_telegram_msg(f"🚨 [신규진입] {selected_coin} {name}\n진입가: {s_curr_p:,.2f}\n목표가: {target_price:,.2f}\n점수: {s_score}점")
 
 if needs_update:
     try: conn.update(worksheet=selected_coin, data=log_df)
