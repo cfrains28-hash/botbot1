@@ -31,18 +31,14 @@ st.markdown(
 # 2. 시스템 초기화 및 텔레그램 설정
 # ==========================================
 try:
-    # 회원님이 스트림릿 클라우드에 세팅하신 시크릿 정보를 안전하게 불러옵니다.
     TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     CHAT_ID = st.secrets["CHAT_ID"]
 except:
     TELEGRAM_TOKEN = "YOUR_TOKEN_HERE"
     CHAT_ID = "YOUR_CHAT_ID_HERE"
 
-if 'alert_sent' not in st.session_state: st.session_state.alert_sent = False
 if 'last_coin' not in st.session_state: st.session_state.last_coin = 'BTC'
-if 'whale_alerts' not in st.session_state: st.session_state.whale_alerts = {}
 
-# 텔레그램 메시지 발송 함수 (정상 작동 준비 완료)
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: requests.get(url, params={"chat_id": CHAT_ID, "text": message})
@@ -101,7 +97,7 @@ def calculate_logic(df):
     return ma_s + vol_s + pos_s, v_ratio, poc_p, vp
 
 # ==========================================
-# 4. 사이드바 (스나이퍼 설정 추가)
+# 4. 사이드바 (드롭다운 설정 추가)
 # ==========================================
 st.sidebar.markdown("### ⚙️ 메인 설정")
 selected_coin = st.sidebar.selectbox("🪙 코인 선택", ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'], index=0)
@@ -109,22 +105,26 @@ symbol = f"{selected_coin}USDT"
 
 if st.session_state.last_coin != selected_coin:
     st.session_state.last_coin = selected_coin
-    st.session_state.whale_alerts = {}
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔫 스나이퍼 매매 설정")
-min_score = st.sidebar.slider("🔥 최소 진입 점수", min_value=70, max_value=100, value=90, step=5, help="점수가 높을수록 진입 횟수는 줄지만 승률이 올라갑니다.")
-use_mtf = st.sidebar.toggle("🌐 다중 시간대(4H) 필터", value=True, help="단기봉 진입 시 4시간봉이 상승장일 때만 진입합니다.")
-max_hold_candles = st.sidebar.number_input("⏳ 최대 보유 캔들 수", min_value=1, max_value=50, value=3, help="지정된 캔들 수가 지나면 시간종료로 청산됩니다.")
+
+# 🚨 [수정됨] 드롭다운 형식의 멀티 셀렉트 추가
+SCAN_OPTIONS = {"5분봉": "5m", "15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d"}
+active_names = st.sidebar.multiselect("🔍 실시간 스캔 간격 선택", options=list(SCAN_OPTIONS.keys()), default=["5분봉", "15분봉", "1시간봉"])
+
+min_score = st.sidebar.slider("🔥 최소 진입 점수", min_value=70, max_value=100, value=90, step=5)
+use_mtf = st.sidebar.toggle("🌐 다중 시간대(4H) 필터", value=True)
+max_hold_candles = st.sidebar.number_input("⏳ 최대 보유 캔들 수", min_value=1, max_value=50, value=3)
 leverage = st.sidebar.slider("⚡ 사용 배율 (Leverage)", min_value=1, max_value=20, value=5)
-tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=3.0, step=1.0, help="배율이 적용된 최종 목표 수익률입니다.")
+tp_roe = st.sidebar.number_input("🎯 목표 익절 (ROE %)", min_value=1.0, value=3.0, step=0.5)
 use_sl = st.sidebar.toggle("🛑 마젠타 지지선 자동손절", value=True)
-fee_rate = 0.05 # 바이낸스 테이커 고정 수수료 (%)
+fee_rate = 0.05 
 
 auto_refresh = st.sidebar.checkbox("🔄 실시간 자동 새로고침", value=True)
 
 # ==========================================
-# 5. 백그라운드 스캔 (익절/손절 로직 탑재)
+# 5. 백그라운드 스캔 (익절/손절 및 알림)
 # ==========================================
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -135,10 +135,11 @@ except:
     log_df = pd.DataFrame(columns=["진입시간", "차트간격", "진입가", "목표가", "손절가", "승률점수", "상태", "청산시간", "청산가", "순수익(ROE%)"])
 
 needs_update = False
-SCAN_LIST = {"15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d"}
-INTERVAL_MINS = {"15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+INTERVAL_MINS = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
-for name, inv in SCAN_LIST.items():
+# 🚨 [수정됨] 사용자가 드롭다운에서 선택한 간격만 반복문을 돕니다.
+for name in active_names:
+    inv = SCAN_OPTIONS[name]
     s_df = load_data(inv, symbol)
     if s_df.empty: continue
     
@@ -146,7 +147,7 @@ for name, inv in SCAN_LIST.items():
     s_curr_t = s_df['time'].iloc[-1]
     s_score, s_v_ratio, s_poc, _ = calculate_logic(s_df)
     
-    # [청산 로직: 익절 / 손절 / 시간종료]
+    # [청산 로직]
     if not log_df.empty:
         p_idx = log_df[(log_df["상태"] == "⏳ 대기중") & (log_df["차트간격"] == name)].index
         for idx in p_idx:
@@ -157,7 +158,6 @@ for name, inv in SCAN_LIST.items():
             gross_roe = ((s_curr_p - ent_p) / ent_p) * 100 * leverage
             net_roe = gross_roe - (fee_rate * 2 * leverage)
             
-            # 보유 시간 타임아웃 계산 (캔들 수 * 봉 간격)
             entry_time = pd.to_datetime(log_df.loc[idx, "진입시간"])
             hold_time_limit = pd.Timedelta(minutes=INTERVAL_MINS[inv] * max_hold_candles)
             
@@ -172,16 +172,14 @@ for name, inv in SCAN_LIST.items():
                 
                 log_df.loc[idx, ["청산시간", "청산가", "순수익(ROE%)", "상태"]] = [str(s_curr_t), s_curr_p, round(net_roe, 2), status]
                 needs_update = True
-                
-                # 🚨 [추가된 부분] 청산 시 텔레그램 알림 발송
                 send_telegram_msg(f"[{status}] {selected_coin} {name}\n청산가: {s_curr_p:,.2f}\n수익률: {net_roe:.2f}%")
 
-    # [진입 로직: 다중 시간대 필터 및 설정 점수 이상]
+    # [진입 로직]
     mtf_pass = True
-    if use_mtf and name in ["15분봉", "1시간봉"]:
+    if use_mtf and inv in ["5m", "15m", "1h"]:
         df_4h = load_data("4h", symbol)
         if not df_4h.empty and df_4h['close'].iloc[-1] < df_4h['ma60'].iloc[-1]:
-            mtf_pass = False # 4시간봉이 하락 추세면 15m/1h 진입 패스
+            mtf_pass = False
 
     if s_score >= min_score and mtf_pass:
         is_p = not log_df[(log_df["상태"] == "⏳ 대기중") & (log_df["차트간격"] == name)].empty if not log_df.empty else False
@@ -198,8 +196,6 @@ for name, inv in SCAN_LIST.items():
             }])
             log_df = pd.concat([log_df, new], ignore_index=True)
             needs_update = True
-            
-            # 🚨 [추가된 부분] 신규 진입 시 텔레그램 알림 발송
             send_telegram_msg(f"🚨 [신규진입] {selected_coin} {name}\n진입가: {s_curr_p:,.2f}\n목표가: {target_price:,.2f}\n점수: {s_score}점")
 
 if needs_update:
@@ -209,10 +205,10 @@ if needs_update:
 # ==========================================
 # 6. 메인 화면 UI 및 차트
 # ==========================================
-st.title(f"📈 {selected_coin} 전지적 세력 시점 V3.3 (필터 & 타임아웃 적용)")
+st.title(f"📈 {selected_coin} 전지적 세력 시점 V3.4 (드롭다운 필터)")
 
-interval_ui = {"1분봉": "1m", "5분봉": "5m", "15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d", "주봉": "1w", "월봉": "1M"}
-sel_name = st.radio("⏰ 차트 화면 간격", list(interval_ui.keys()), horizontal=True, index=5)
+interval_ui = {"1분봉": "1m", "5분봉": "5m", "15분봉": "15m", "1시간봉": "1h", "4시간봉": "4h", "일봉": "1d"}
+sel_name = st.radio("⏰ 차트 화면 간격", list(interval_ui.keys()), horizontal=True, index=2)
 df_ui = load_data(interval_ui[sel_name], symbol)
 
 if not df_ui.empty:
@@ -232,37 +228,27 @@ if not df_ui.empty:
     with c3: st.markdown(f"<div class='score-card'><h4>🛑 화면상 지지선 (참고용)</h4><h2 style='color:#FF4444;'>{u_poc*0.998:,.2f}</h2></div>", unsafe_allow_html=True)
 
     show_vp = st.toggle("📊 매물대 차트 켜기", value=False)
-    if show_vp:
-        fig = make_subplots(rows=2, cols=2, shared_xaxes=True, shared_yaxes=True, column_widths=[0.25, 0.75], row_heights=[0.8, 0.2], specs=[[{}, {}], [{}, {}]], horizontal_spacing=0.01, vertical_spacing=0.05)
-        fig.add_trace(go.Bar(x=u_vp['volume'], y=u_vp['mid'], orientation='h', marker=dict(color=u_vp['volume'], colorscale='Viridis', showscale=False), name='매물대'), row=1, col=1)
-        c_col = 2
-    else:
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.8, 0.2], vertical_spacing=0.05)
-        c_col = 1
+    fig = make_subplots(rows=2, cols=2, shared_xaxes=True, shared_yaxes=True, column_widths=[0.2, 0.8], row_heights=[0.8, 0.2], specs=[[{"secondary_y": False}, {"secondary_y": True}], [{"colspan": 2}, None]], horizontal_spacing=0.01, vertical_spacing=0.05) if show_vp else make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.8, 0.2], vertical_spacing=0.05)
+    
+    c_col = 2 if show_vp else 1
+    if show_vp: fig.add_trace(go.Bar(x=u_vp['volume'], y=u_vp['mid'], orientation='h', marker=dict(color='rgba(100,100,255,0.3)'), name='매물대'), row=1, col=1)
     
     fig.add_trace(go.Candlestick(x=df_ui['time'], open=df_ui['open'], high=df_ui['high'], low=df_ui['low'], close=df_ui['close'], name='Price'), row=1, col=c_col)
     for m, c in zip(['ma5','ma20','ma60'], ['white','orange','deepskyblue']):
         fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui[m], line=dict(color=c, width=1), name=m.upper()), row=1, col=c_col)
     
-    fig.add_hline(y=u_poc*0.998, line_dash="dash", line_color="magenta", annotation_text=f"🛑 손절가: {u_poc*0.998:,.2f}", annotation_position="bottom right", row=1, col=c_col)
-
-    fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui['rsi'], line=dict(color='yellow', width=1.5), name='RSI'), row=2, col=c_col)
-    fig.add_hline(y=70, line_dash="dot", line_color="red", row=2, col=c_col)
-    fig.add_hline(y=30, line_dash="dot", line_color="green", row=2, col=c_col)
-
-    fig.update_layout(height=800, template="plotly_dark", margin=dict(l=0, r=10, t=30, b=0))
-    x_format = '%m-%d %H:%M' if "분봉" in sel_name or "시간봉" in sel_name else '%Y-%m-%d'
+    fig.add_hline(y=u_poc*0.998, line_dash="dash", line_color="magenta", annotation_text="🛑 손절선", row=1, col=c_col)
+    fig.add_trace(go.Scatter(x=df_ui['time'], y=df_ui['rsi'], line=dict(color='yellow', width=1.5), name='RSI'), row=2, col=1 if not show_vp else 1)
+    fig.update_layout(height=800, template="plotly_dark", margin=dict(l=0, r=10, t=30, b=0), showlegend=False)
     fig.update_xaxes(rangeslider_visible=False) 
-    fig.update_xaxes(showticklabels=False, row=1, col=c_col) 
-    fig.update_xaxes(tickformat=x_format, row=2, col=c_col) 
     
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 7. 구글 시트 장부 (스나이퍼 기록 모드)
+# 7. 구글 시트 장부
 # ==========================================
 st.markdown("---")
-with st.expander("📊 구글 시트 실전 시뮬레이션 장부 (수수료 차감/배율 적용 완료)", expanded=True):
+with st.expander("📊 실전 시뮬레이션 장부", expanded=True):
     if not log_df.empty:
         st.dataframe(log_df.sort_values("진입시간", ascending=False), use_container_width=True)
     else:
